@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Parallax Wi-Fi Module Configuration - Update Flash Filesystem</title>
+  <meta content="width=device-width, initial-scale=1" name="viewport">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+<div id="page">
+  <div id="header">
+    <h1>File Uploads</h1>
+  </div>
+  <div id="main" class="clearfix">
+    <div id="content">
+      <p>Here, you can upload files for the ESP32 micro web server.  For example, if your
+        ESP module's IP address is 192.168.4.1 and your file is mypage.html, use this page to
+        upload the file. To view the page, just send your web browser to
+        http://192.168.4.1/files/mypage.html.</p>
+      <form action='#' onsubmit="return false;">
+        <p>
+          <input type='file' id='file-input' onchange='on_loadFile();'>
+        </p>
+        </form>
+        <table cellspacing="0" cellpadding="0" border="0" width="550">
+        <tr>
+            <td>
+                <table cellspacing="0" cellpadding="1" border="1" width="550">
+		        <col width="200px" /><col width="75px" /><col width="125px" />
+                    <tr>
+                        <th>Name</th><th>Size (Bytes)</th><th>Delete</th>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td>
+                <div style="width:575px; height:150px; overflow:auto;">
+                    <table cellspacing="0" cellpadding="1" border="1" width="550">
+			        <col width="200px" /><col width="75px" /><col width="125px" />
+                    <DYNAMIC>
+                        <tr><td><a href="/logo.png">logo.png</a></td><td>7872</td><td><form method="post" action="/delete/logo.png"><button type="submit">Delete</button></form></td></tr>
+                        <tr><td><a href="/newpage.html">newpage.html</a></td><td>1232</td><td><form method="post" action="/delete/newpage.html"><button type="submit">Delete</button></form></td></tr>
+                        <tr><td><a href="/log.html">log.html</a></td><td>1642</td><td><form method="post" action="/delete/log.html"><button type="submit">Delete</button></form></td></tr>
+                   		<tr><td><a href="/favicon.ico">favicon.ico</a></td><td>1175</td><td><form method="post" action="/delete/favicon.ico"><button type="submit">Delete</button></form></td></tr>
+                        <tr><td><a href="/style.css">style.css</a></td><td>5398</td><td><form method="post" action="/delete/style.css"><button type="submit">Delete</button></form></td></tr>
+                        <tr><td><a href="/ui.js">ui.js</a></td><td>13637</td><td><form method="post" action="/delete/ui.js"><button type="submit">Delete</button></form></td></tr>
+                        <tr><td><a href="/console.js">console.js</a></td><td>4202</td><td><form method="post" action="/delete/console.js"><button type="submit">Delete</button></form></td></tr>
+                    </DYNAMIC>
+                    </table>
+                </div>
+            </td>
+        </tr>
+    </table>
+        <h2>Progress</h2>
+        <p><progress id='progress' min="0" max="100" value="0">0% complete</progress>
+        <p id='message'>&nbsp;</p>
+        </p>
+    </div>
+    <nav id='navigation'>
+      <input type="checkbox" id="resp" /><label for="resp"></label>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="wifi/wifi.html">Networks</a></li>
+        <li><a href="update-ffs.html">Files</a></li>
+        <li><a href="settings.html">Settings</a></li>
+        <li><a href="flash/index.html">Firmware</a></li>
+        <li><a href="log.html">Debug Log</a></li>
+      </ul>
+    </nav>
+  </div>
+  <div id="ack"></div>
+  <div id="footer">
+    <a href="https://www.parallax.com">
+      <img src="logo.png">
+    </a>
+  </div>
+</div>
+
+<script type='text/javascript'>
+
+    function on_loadFile() {
+        var input, file, fr;
+        input = document.getElementById('file-input');
+        if (!input)
+            setMessage("Couldn't find the file-input element.");
+        else if (!input.files[0])
+            setMessage("No files selected.");
+        else {
+            loadFile(input.files[0]);
+            input.value = "";
+        }
+    }
+
+    function on_emptyFilesystem() {
+        emptyFilesystem();
+    }
+
+    function setMessage(msg) {
+        var message = document.getElementById('message');
+        message.innerHTML = msg;
+    };
+
+    function loadFile(file) {
+
+        var req = new XMLHttpRequest();
+        setMessage("Loading...");
+        req.open('POST', '/upload/files/' + file.name, true);
+        req.onload = function (e) {
+            if (this.readyState == 4) {
+                if (this.status == 200)
+                    setMessage("File Loaded!");
+                else
+                    setMessage("File Load Failed!");
+            }
+        };
+
+        var progressBar = document.getElementById('progress');
+        req.upload.onprogress = function (e) {
+            if (e.lengthComputable)
+                progressBar.value = (e.loaded / e.total) * 100;
+        };
+
+        req.send(file);
+    }
+
+</script>
+</body>
+</html>
+
