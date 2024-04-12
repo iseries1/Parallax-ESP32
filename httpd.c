@@ -8,18 +8,23 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <ctype.h>
 #include <sys/param.h>
 #include <sys/unistd.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include "esp_err.h"
 #include "esp_system.h"
+#include "esp_mac.h"
 #include "esp_log.h"
 #include "esp_vfs.h"
 #include "esp_spiffs.h"
 #include "esp_http_server.h"
+#include "esp_http_client.h"
 #include "esp_wifi_types.h"
 #include "esp_wifi.h"
+#include "driver/uart.h"
+
 
 #include "config.h"
 #include "parser.h"
@@ -28,6 +33,8 @@
 #include "json.h"
 #include "cmds.h"
 #include "status.h"
+
+#define MAXHANDLERS 26
 
 typedef struct
 {
@@ -71,6 +78,8 @@ struct file_server_data {
     char scratch[SCRATCH_BUFSIZE];
 };
 
+static struct file_server_data* server_data = NULL;
+
 HttpRedirect Red[] = {
     {"/websocket", "/websocket/index.html"},
     {"/wifi", "/wifi/wifi.html"},
@@ -110,6 +119,13 @@ static cmd_def vars[] = {
 
 static const char* TAG = "httpd";
 
+static char UsrUri[10][25];
+static struct {
+    httpd_handle_t hd;
+    int fd;
+    char vars[128];
+} UsrReq[10];
+
 static char HexDecode(char x)
 {
     if (x >= 'A')
@@ -127,6 +143,7 @@ static int findArg(char* uri, char* arg, char* val)
     int t = 0;
     char v;
 
+    buffer[0] = 0;
     // expand hex encoding
     while (uri[i] != 0)
     {
@@ -206,7 +223,7 @@ static esp_err_t redirect(httpd_req_t* req)
 static esp_err_t PropSettings(httpd_req_t* req)
 {
     char buffer[512];
-    char name[128], value[128];
+    char name[128], value[128], save[128];
     cmd_def* def = NULL;
     int i;
 
@@ -245,7 +262,25 @@ static esp_err_t PropSettings(httpd_req_t* req)
         httpd_resp_send_err(req, 400, "Get setting failed\r\n");
         return ESP_OK;
     }
-    ESP_LOGI(TAG, "GET '%s' --> '%s'", def->name, value);
+
+    if (findArg(buffer, "value", save) == 0)
+    {
+        if (strcmp(value, save) != 0)
+        {
+            strcpy(value, save);
+            if ((*def->setHandler)(def->data, value) != 0)
+            {
+                ESP_LOGE(TAG, "SET '%s' ERROR", def->name);
+                httpd_resp_send_err(req, 400, "Get setting failed\r\n");
+                return ESP_OK;
+            }
+            ESP_LOGI(TAG, "SET '%s' --> '%s'", def->name, value);
+        }
+    }
+    else
+    {
+        ESP_LOGI(TAG, "GET '%s' --> '%s'", def->name, value);
+    }
 
     i = strlen(value);
 
@@ -355,7 +390,7 @@ esp_err_t http_dynamic_upload(httpd_req_t* req)
 
     /* Retrieve the pointer to scratch buffer for temporary storage */
     char* chunk = ((struct file_server_data*)req->user_ctx)->scratch;
-    size_t chunksize;
+    size_t chunksize = 0;
     do
     {
         /* Read file in chunks into the scratch buffer */
@@ -538,6 +573,8 @@ static const char* get_path_from_uri(char* dest, const char* base_path, const ch
 /* Handler file request */
 static esp_err_t handleRequests(httpd_req_t* req)
 {
+    char *m;
+    int p;
     char filepath[FILE_PATH_MAX];
     FILE* fd = NULL;
     struct stat file_stat;
@@ -562,6 +599,39 @@ static esp_err_t handleRequests(httpd_req_t* req)
     if (strcmp(req->uri, "/directory") == 0)
     {
         return http_resp_dir_html(req, "/");
+    }
+
+    /* process user added uri */
+    for (int i=0;i<10;i++)
+    {
+        if (*UsrUri[i] == NULL)
+            continue;
+        m = strchr(UsrUri[i], '*');
+        if (m != NULL)
+            p = m - UsrUri[i];
+        else
+            p = strlen(UsrUri[i]);
+        
+        if (memcmp(req->uri, UsrUri[i], p) == 0)
+        {
+            ESP_LOGI(TAG, "Found URI: %s", UsrUri[i]);
+            UsrReq[i].hd = req->handle;
+            UsrReq[i].fd = httpd_req_to_sockfd(req);
+            if (req->method == HTTP_GET)
+            {
+                httpd_req_get_url_query_str(req, UsrReq[i].vars, sizeof(UsrReq[i].vars));
+                if (flashConfig.events != 0)
+                    sendResponseP('G', i, 0);
+            }
+            if (req->method == HTTP_POST)
+            {
+                httpd_req_recv(req, UsrReq[i].vars, sizeof(UsrReq[i].vars));
+                if (flashConfig.events != 0)
+                    sendResponseP('P', i, 0);
+            }
+            ESP_LOGI(TAG, "Vars:%s", UsrReq[i].vars);
+            return ESP_OK;
+        }
     }
 
     if (stat(filepath, &file_stat) == -1) 
@@ -589,7 +659,7 @@ static esp_err_t handleRequests(httpd_req_t* req)
 
     /* Retrieve the pointer to scratch buffer for temporary storage */
     char* chunk = ((struct file_server_data*)req->user_ctx)->scratch;
-    size_t chunksize;
+    size_t chunksize = 0;
     do 
     {
         /* Read file in chunks into the scratch buffer */
@@ -972,10 +1042,13 @@ esp_err_t WiFiScan(httpd_req_t* req)
     uint16_t ap_count = 0;
     memset(ap_info, 0, sizeof(ap_info));
 
-    ESP_ERROR_CHECK(esp_wifi_scan_start(NULL, true));
-    ESP_ERROR_CHECK(esp_wifi_scan_get_ap_records(&number, ap_info));
-    ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(&ap_count));
-    ESP_LOGI(TAG, "Total APs found = %u", ap_count);
+    if (!statusIsConnecting())
+    {
+        ESP_ERROR_CHECK(esp_wifi_scan_start(NULL, true));
+        ESP_ERROR_CHECK(esp_wifi_scan_get_ap_records(&number, ap_info));
+        ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(&ap_count));
+        ESP_LOGI(TAG, "Total APs found = %u", ap_count);
+    }
 
     memset(Buffer, 0, sizeof(Buffer));
 
@@ -1043,7 +1116,7 @@ esp_err_t WiFiConnStatus(httpd_req_t* req)
 
 esp_err_t WiFiConnect(httpd_req_t* req)
 {
-    char Buffer[128];
+    char Buffer[512];
     char essid[32];
     char passwd[128];
     wifi_config_t wifi_config;
@@ -1128,7 +1201,7 @@ esp_err_t PropReset(httpd_req_t* req)
 {
     statusReset();
 
-    printf("Reset\r\n");
+    printf("Prop Reset\r\n");
 
     httpd_resp_set_type(req, "text/plain");
     //httpd_resp_set_hdr(req, "Content-Length", "0");
@@ -1182,6 +1255,7 @@ HttpdBuiltInUrl builtInUrls[] = {
     {"/wifi/connstatus", HTTP_GET, WiFiConnStatus},
     {"/wifi/setmode", HTTP_POST, WiFiSetMode},
     {"/propeller/reset", HTTP_POST, PropReset},
+    {"/propeller/reset", HTTP_GET, PropReset},
     {"/propeller/load", HTTP_POST, PropLoad},
     {"/dynamic", HTTP_GET, http_dynamic_upload},
 /*
@@ -1208,16 +1282,19 @@ HttpdBuiltInUrl builtInUrls[] = {
     {NULL, 0, NULL}
 };
 
-/* Function to start the file server */
+/* Function to start the HTTP server */
 esp_err_t httpdInit(int port)
 {
-  static struct file_server_data* server_data = NULL;
+  httpd_handle_t server = NULL;
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+
+
   httpd_uri_t hd;
   int i;
 
   if (server_data)
   {
-    ESP_LOGE(TAG, "File server already started");
+    ESP_LOGE(TAG, "HTTP server already started");
     return ESP_ERR_INVALID_STATE;
   }
 
@@ -1231,11 +1308,9 @@ esp_err_t httpdInit(int port)
 
   strlcpy(server_data->base_path, "/spiffs", sizeof(server_data->base_path));
 
-  httpd_handle_t server = NULL;
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.max_uri_handlers = 26;
-
+  config.max_uri_handlers = MAXHANDLERS;
   config.uri_match_fn = httpd_uri_match_wildcard;
+
   ESP_LOGI(TAG, "Starting HTTP Server");
   if (httpd_start(&server, &config) != ESP_OK)
   {
@@ -1255,6 +1330,7 @@ esp_err_t httpdInit(int port)
       i++;
   }
 
+  memset(UsrUri, 0, sizeof(UsrUri));
 
   return ESP_OK;
 }
@@ -1323,4 +1399,56 @@ void doSet(char* parms)
     }
 
     sendResponse('S', ERROR_NONE);
+}
+
+esp_err_t register_uri(char *uri)
+{
+    for (int i=0;i<10;i++)
+    {
+        if (UsrUri[i][0] == 0)
+        {
+            strcpy(UsrUri[i], uri);
+            UsrReq[i].fd = -1;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_HTTPD_INVALID_REQ;
+}
+
+esp_err_t handleReply(int handle, char *code, int tcount, int count)
+{
+    httpd_handle_t hd;
+    int fd;
+    char Buffer[1024];
+    int i, t;
+
+    hd = UsrReq[handle].hd;
+    fd = UsrReq[handle].fd;
+
+    t = 0;
+
+    i = sprintf(Buffer, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n", count);
+    i = httpd_socket_send(hd, fd, Buffer, i, 0);
+
+    while (count > t)
+    {
+        i = uart_read_bytes(UART_NUM_1, Buffer, count, 500 / portTICK_PERIOD_MS);
+        if (i > 0)
+            t = t + i;
+    }
+    
+    i = httpd_socket_send(hd, fd, Buffer, count, 0);
+
+    return ESP_OK;
+}
+
+esp_err_t getVar(int handle, char *name, char *value)
+{
+
+    if (findArg(UsrReq[handle].vars, name, value) != 0)
+    {
+        *value = 0;
+    }
+
+    return ESP_OK;
 }

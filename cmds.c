@@ -21,11 +21,22 @@
 
 #include "cmds.h"
 #include "parser.h"
+#include "status.h"
 
 static const char* TAG = "cmds";
+static wifi_config_t wifi_config;
 
 static int Socket = -1;
 static char SRBuff[1024];
+
+extern esp_err_t register_uri();
+extern esp_err_t handleReply(int , char *, int , int);
+extern esp_err_t getVar(int, char *, char *);
+
+void cmd_init(void)
+{
+
+}
 
 void doNothing(char* parms)
 {
@@ -34,7 +45,6 @@ void doNothing(char* parms)
 
 void doJoin(char* parms)
 {
-    wifi_config_t wifi_config;
     char* p, *s;
 
     s = &parms[1];
@@ -45,9 +55,10 @@ void doJoin(char* parms)
         strcpy((char*)wifi_config.sta.ssid, s);
         p++;
         strcpy((char*)wifi_config.sta.password, p);
-        esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config);
         esp_wifi_disconnect();
+        esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config);
         sendResponse('S', ERROR_NONE);
+        statusConnect();
         return;
     }
 
@@ -83,7 +94,7 @@ void doSend(char* parms)
     i = 0;
     while (i < len)
     {
-       i += uart_read_bytes(UART_NUM_0, (uint8_t*)&SRBuff[i], 1024-i, 20 / portTICK_RATE_MS);
+       i += uart_read_bytes(UART_NUM_1, (uint8_t*)&SRBuff[i], 1024-i, 20 / portTICK_PERIOD_MS);
     }
     if (Socket == -1)
     {
@@ -214,3 +225,118 @@ void doClose(char* parms)
     Socket = -1;
     sendResponse('S', ERROR_NONE);
 }
+
+/* set uri http, tcp, ...*/
+void doListen(char *parms)
+{
+    char *s, *p;
+
+    s = &parms[1];
+    p = strchr(s, ',');
+    if (p == NULL)
+    {
+        sendResponse('E', ERROR_INVALID_ARGUMENT);
+        return;
+    }
+
+    p++;
+    
+    ESP_LOGI(TAG, "<%s>", p);
+
+    register_uri(p);
+
+    sendResponse('S', ERROR_NONE);
+}
+
+/* handle, code(200), total count, count \r <data> */
+void doReply(char *parms)
+{
+
+    int handle;
+    char code[5];
+    int tcount;
+    int count;
+    char *s, *p;
+
+    tcount = 0;
+    count = 0;
+    s = &parms[1];
+    p = strchr(s, ',');
+    if (p == NULL)
+    {
+        sendResponse('E', ERROR_WRONG_ARGUMENT_COUNT);
+        return;
+    }
+
+    *p = 0;
+    handle = atoi(s);
+    s = p + 1;
+    p = strchr(s, ',');
+    if (p == NULL)
+    {
+        sendResponse('E', ERROR_WRONG_ARGUMENT_COUNT);
+        return;
+    }
+
+    *p = 0;
+    strcpy(code, s);
+    s = p + 1;
+    p = strchr(s, ',');
+    if (p == NULL)
+    {
+        count = atoi(s);
+        tcount = count;
+        ESP_LOGI(TAG, "CallingReply with:%d", count);
+        handleReply(handle, code, tcount, count);
+    }
+
+    *p = 0;
+    tcount = atoi(s);
+    s = p + 1;
+    count = atoi(s);
+    handleReply(handle, code, tcount, count);
+
+    sendResponse('S', ERROR_NONE);
+}
+
+
+void doArg(char *parms)
+{
+    char *p, *s;
+    char name[128];
+    char value[128];
+    int handle;
+
+    s = &parms[1];
+    p = strchr(s, ',');
+    if (p == NULL)
+    {
+        sendResponse('E', ERROR_WRONG_ARGUMENT_COUNT);
+        return;
+    }
+    
+    *p = 0;
+    handle = atoi(s);
+
+    s = p + 1;
+    strcpy(name, s);
+
+    ESP_LOGI(TAG, "name:%s", name);
+    getVar(handle, name, value);
+
+    sendResponseT(value);
+}
+
+void doPoll(char *parms)
+{
+    char *p, *s;
+    int filter;
+
+    s = &parms[1];
+    filter = atoi(s);
+    if (filter == 0)
+        filter = -1;
+    
+    sendResponse('S', ERROR_NONE);
+}
+

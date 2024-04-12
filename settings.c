@@ -13,6 +13,12 @@
 #include "config.h"
 
 static const char* TAG = "settings";
+static esp_netif_t *Interface;
+
+void setInterface(esp_netif_t *interface)
+{
+    Interface = interface;
+}
 
 int getVersion(void *data, char *value)
 {
@@ -31,7 +37,8 @@ int setModuleName(void *data, char *value)
 {
     memcpy(flashConfig.module_name, value, sizeof(flashConfig.module_name));
     flashConfig.module_name[sizeof(flashConfig.module_name) - 1] = '\0';
-    tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, flashConfig.module_name);
+    esp_netif_set_hostname(Interface, flashConfig.module_name);
+//    tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, flashConfig.module_name);
     return 0;
 }
 

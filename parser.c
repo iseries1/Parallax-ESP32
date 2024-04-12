@@ -9,6 +9,7 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_log.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
 
@@ -19,11 +20,18 @@
 #include "serbridge.h"
 
 #define BUFFSIZE 256
+
+static const char* TAG = "parser";
+
+char Tokens[][10] = {"", "JOIN", "CHECK", "SET", "POLL", "PATH", "SEND", "RECV", "CLOSE", "LISTEN",
+                     "ARG", "REPLY", "CONNECT", "APSCAN", "APGET", "FINFO", "FCOUNT", "FRUN", "UDP"};
+
 char inBuffer[1024];
 char outBuffer[1024];
 
 int In, Out;
 bool parse;
+bool volatile hold;
 
 void sendResponse(char resp, int value)
 {
@@ -31,7 +39,7 @@ void sendResponse(char resp, int value)
     int len;
 
     len = sprintf(Buf, "%c=%c,%d\r", TKN_START, resp, value);
-    uart_write_bytes(UART_NUM_0, (const char*)Buf, len);
+    uart_write_bytes(UART_NUM_1, (const char*)Buf, len);
 }
 
 void sendResponseT(char* value)
@@ -40,21 +48,38 @@ void sendResponseT(char* value)
     int len;
 
     len = sprintf(Buf, "%c=S,%s\r", TKN_START, value);
-    uart_write_bytes(UART_NUM_0, (const char*)Buf, len);
+    uart_write_bytes(UART_NUM_1, (const char*)Buf, len);
+}
+
+void sendResponseP(char type, int handle, int id)
+{
+    char Buf[128];
+    int len;
+
+    len = sprintf(Buf, "%c=%c:%d,%d\r", TKN_START, type, handle, id);
+    uart_write_bytes(UART_NUM_1, (const char*)Buf, len);
 }
 
 void receive(char* data, int len)
 {
-    for (int i = 0; i < len; i++)
-        inBuffer[In++] = data[i];
+    while (hold)
+        vTaskDelay(200 / portTICK_PERIOD_MS);
+
+    hold = true;
+    if ((In + len) > 1023)
+        len = 1023 - In;
+
+    memcpy(&inBuffer[In], data, len);
+    In = In + len;
     inBuffer[In] = 0;
+    hold = false;
 }
 
 void doCmd()
 {
     char* parms;
 
-    parms = outBuffer;
+    parms = &outBuffer[1];
 
     switch (parms[0])
     {
@@ -82,15 +107,28 @@ void doCmd()
     case TKN_SET:
         doSet(parms);
         break;
+    case TKN_LISTEN:
+        doListen(parms);
+        break;
+    case TKN_REPLY:
+        doReply(parms);
+        break;
+    case TKN_ARG:
+        doArg(parms);
+        break;
+    case TKN_POLL:
+        doPoll(parms);
+        break;
     default :
-        printf("Nothing\n");
+        printf("*Nothing*\n");
     }
 }
 
 void parserInit()
 {
     int len;
-    int p;
+    int c;
+    char Token[10];
 
     memset(inBuffer, 0, sizeof(inBuffer));
     memset(outBuffer, 0, sizeof(outBuffer));
@@ -105,47 +143,72 @@ void parserInit()
         .source_clk = UART_SCLK_APB,
     };
 
-    uart_driver_install(UART_NUM_0, BUFFSIZE * 2, 0, 0, NULL, 0);
-    uart_param_config(UART_NUM_0, &uart_config);
-    uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_driver_install(UART_NUM_1, BUFFSIZE * 2, 0, 0, NULL, 0);
+    uart_param_config(UART_NUM_1, &uart_config);
+    uart_set_pin(UART_NUM_1, 6, 5, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
     // Configure a buffer for the incoming data
-    uint8_t* data = (uint8_t*)malloc(BUFFSIZE);
+    uint8_t data; // = (uint8_t*)malloc(BUFFSIZE);
 
     In = 0;
     Out = 0;
     parse = false;
+    hold = false;
+    c = -1;
+
     while (true)
     {
-        len = uart_read_bytes(UART_NUM_0, data, BUFFSIZE, 20 / portTICK_RATE_MS);
+        len = uart_read_bytes(UART_NUM_1, &data, 1, 20 / portTICK_PERIOD_MS);
 
-        p = 0;
-        while (p < len)
+        if (len > 0)
         {
-            if (data[p] == TKN_START)
-            {
-                parse = true;
-                p++;
-                continue;
-            }
-
             if (parse)
             {
-                if (data[p] == '\r')
+                if (data == '\r')
                 {
                     doCmd();
                     Out = 0;
                     outBuffer[Out] = 0;
                     parse = false;
-                    p++;
                     continue;
                 }
             }
 
-            if (Out < 1024)
-                outBuffer[Out++] = data[p++];
+            if (c == 0)
+            {
+                if (data > MIN_TOKEN)
+                    c = -1;
+            }
 
-            outBuffer[Out] = 0;
+            if (c >= 0)
+            {
+                if (data == ':')
+                {
+                    data = doTrans(Token);
+                    ESP_LOGI(TAG, "Token is:%x", data);
+                    c = -1;
+                }
+                else
+                {
+                    Token[c++] = data;
+                    Token[c] = 0;
+                    if (c > 8)
+                        c = -1;
+                    continue;
+                }
+            }
+
+            if (data == TKN_START)
+            {
+                parse = true;
+                c = 0;
+            }
+
+            if (Out < 1024)
+            {
+                outBuffer[Out++] = data;
+                outBuffer[Out] = 0;
+            }
         }
 
         if ((Out > 0) && (parse == false))
@@ -154,10 +217,23 @@ void parserInit()
             Out = 0;
         }
 
-        if (In > 0)
+        if ((In > 0) && (!hold))
         {
-            uart_write_bytes(UART_NUM_0, (const char*)inBuffer, In);
+            hold = true;
+            uart_write_bytes(UART_NUM_1, (const char*)inBuffer, In);
             In = 0;
+            hold = false;
         }
     }
 }
+
+char doTrans(char *T)
+{
+    int i;
+
+    for (i=0;i<19;i++)
+        if (strcmp(Tokens[i], T) == 0)
+            return 0xf0 - i;
+    return ' ';
+}
+

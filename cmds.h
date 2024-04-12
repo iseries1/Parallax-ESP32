@@ -1,9 +1,19 @@
 /**
+ * @file cmds.h
  * @brief process incoming commands
  * @author Michael Burmeister
  * @date February 11, 2019
  * @version 1.0
  */
+
+#define CMD_LISTENER   4
+#define CMD_PATH       32
+
+#define CMD_CONNECTION 4
+#define CMD_RX_BUFFER  1024
+#define CMD_TX_BUFFER  1024
+
+#define CMD_HANDLE     (CMD_LISTENER + CMD_CONNECTION)
 
 enum
 {
@@ -48,6 +58,10 @@ enum
 
 };
 
+typedef struct cmd_hdr cmd_hdr;
+typedef struct cmd_listener cmd_listener;
+typedef struct cmd_connection cmd_connection;
+
 enum
 {
     ERROR_NONE = 0,
@@ -75,3 +89,7 @@ void doSend(char*);
 void doRecv(char*);
 void doConnect(char*);
 void doClose(char*);
+void doListen(char*);
+void doReply(char*);
+void doArg(char*);
+void doPoll(char*);

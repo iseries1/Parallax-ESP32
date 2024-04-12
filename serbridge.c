@@ -17,10 +17,11 @@ int currentSocket;
 static void doTerminal()
 {
   int len;
-  char rx_buffer[128];
+  char rx_buffer[1024];
   sIn = 0;
   sOut = 0;
 
+  len = 0;
   do
   {
       len = recv(currentSocket, rx_buffer, sizeof(rx_buffer) - 1, 0);
@@ -91,7 +92,7 @@ static void serbridge(void* pvParameters)
   while (true)
   {
       struct sockaddr_in6 source_addr;
-      uint addr_len = sizeof(source_addr);
+      socklen_t addr_len = sizeof(source_addr);
       currentSocket = accept(listen_sock, (struct sockaddr*) & source_addr, &addr_len);
       if (currentSocket < 0)
       {
@@ -118,5 +119,5 @@ CLEAN_UP:
 void serbridgeInit(int port)
 {
   _PORT = port;
-  xTaskCreate(serbridge, "serialbridge", 2048, NULL, 10, NULL);
+  xTaskCreate(serbridge, "serialbridge", 4096, NULL, 5, NULL);
 }

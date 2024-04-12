@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Process ESP32 Files</title>
+<style type="text/css">
+table#header th
+{
+	border-right: solid 1px #000
+}
+table#header th#right-border
+{
+	padding: 0 4px 0 3px;
+    border-right: none;
+}
+table#tbl-content td
+{
+	border-bottom: solid 1px #bbb;
+	border-right: solid 1px #bbb;
+}
+table#tbl-content tr#bottom td
+{
+	border-bottom: none;
+}
+#box
+{
+            width: 100%;
+            height: 250px;
+            overflow-y: auto;
+            border: solid 1px #000;
+            border-top: none;
+}
+#tbl-content
+{
+            width: 750px;
+            table-layout: fixed;
+            background: #fff;
+}
+#header
+{
+            width: 750px;
+            text-align: left;
+            table-layout: fixed;
+}
+</style>
+</head>
+<body>
+<table class="fixed" border="0">
+    <col width="400px" /><col width="350px" />
+    <tr>
+        <td><h2>ESP32 File Server</h2></td>
+        <td><table border="0">
+              <tr>
+              	<td><label for="newfile">Upload a file</label></td>
+                <td colspan="2"><input id="newfile" type="file" onchange="setpath()" style="width:100%;"></td>
+              </tr>
+              <tr>
+                <td><label for="filepath">Set path on server</label></td>
+                <td><input id="filepath" type="text" style="width:100%;"></td>
+                <td><button id="upload" type="button" onclick="upload()">Upload</button></td>
+              </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+<script>
+function setpath() {
+    var default_path = document.getElementById("newfile").files[0].name;
+    document.getElementById("filepath").value = default_path;
+}
+function upload() {
+    var filePath = document.getElementById("filepath").value;
+    var upload_path = "/upload/" + filePath;
+    var fileInput = document.getElementById("newfile").files;
+
+    /* Max size of an individual file. Make sure this
+     * value is same as that set in file_server.c */
+    var MAX_FILE_SIZE = 200*1024;
+    var MAX_FILE_SIZE_STR = "200KB";
+
+    if (fileInput.length == 0) {
+        alert("No file selected!");
+    } else if (filePath.length == 0) {
+        alert("File path on server is not set!");
+    } else if (filePath.indexOf(' ') >= 0) {
+        alert("File path on server cannot have spaces!");
+    } else if (filePath[filePath.length-1] == '/') {
+        alert("File name not specified after path!");
+    } else if (fileInput[0].size > 200*1024) {
+        alert("File size must be less than 200KB!");
+    } else {
+        document.getElementById("newfile").disabled = true;
+        document.getElementById("filepath").disabled = true;
+        document.getElementById("upload").disabled = true;
+
+        var file = fileInput[0];
+        var xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = function() {
+            if (xhttp.readyState == 4) {
+                if (xhttp.status == 200) {
+                    document.open();
+                    document.write(xhttp.responseText);
+                    document.close();
+                } else if (xhttp.status == 0) {
+                    alert("Server closed the connection abruptly!");
+                    location.reload()
+                } else {
+                    alert(xhttp.status + " Error!\n" + xhttp.responseText);
+                    location.reload()
+                }
+            }
+        };
+        xhttp.open("POST", upload_path, true);
+        xhttp.send(file);
+    }
+}
+</script>
+<div id="wrapper">
+		<div id="content" style="width:768px;">
+			<div id="boundary" style="margin-right:-2px; border:solid 1px #000;; background-color: #408080">
+				<table id="header" cellspacing="0" cellpadding="3" border="0">
+					<tr>
+						<th>Name</th><th>Size (Bytes)</th><th>Delete</th>
+					</tr>
+				</table>
+			</div>
+		<div id="box">
+		<table id="tbl-content" cellspacing="0" cellpadding="3" border="0">
+		<DYNAMIC>
+		<tr><td><a href="/logo.png">logo.png</a></td><td>7872</td><td><form method="post" action="/delete/logo.png"><button type="submit">Delete</button></form></td></tr>
+		<tr><td><a href="/newpage.html">newpage.html</a></td><td>1232</td><td><form method="post" action="/delete/newpage.html"><button type="submit">Delete</button></form></td></tr>
+		<tr><td><a href="/log.html">log.html</a></td><td>1642</td><td><form method="post" action="/delete/log.html"><button type="submit">Delete</button></form></td></tr>
+		<tr><td><a href="/favicon.ico">favicon.ico</a></td><td>1175</td><td><form method="post" action="/delete/favicon.ico"><button type="submit">Delete</button></form></td></tr>
+		<tr><td><a href="/style.css">style.css</a></td><td>5398</td><td><form method="post" action="/delete/style.css"><button type="submit">Delete</button></form></td></tr>
+		<tr><td><a href="/ui.js">ui.js</a></td><td>13637</td><td><form method="post" action="/delete/ui.js"><button type="submit">Delete</button></form></td></tr>
+		<tr><td><a href="/console.js">console.js</a></td><td>4202</td><td><form method="post" action="/delete/console.js"><button type="submit">Delete</button></form></td></tr>
+		</DYNAMIC>
+		</table>
+		</div>
+</div>
+</body>
+</html>
+	

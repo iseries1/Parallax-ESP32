@@ -5,14 +5,18 @@
  * @version 1.0
  */
 
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
+#include "esp_mac.h"
 #include "esp_event.h"
 #include "freertos/event_groups.h"
 #include "esp_wifi.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
+#include "led_strip.h"
+#include "status.h"
 
 #define WIFI_CONNECTED 0x01
 #define WIFI_STA       0x02
@@ -25,16 +29,28 @@ static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 static const char* TAG = "status";
 gpio_config_t io_conf;
+static led_strip_handle_t led_strip;
 
 static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {
+    wifi_event_ap_staconnected_t* event;
+    wifi_config_t wifi_config;
+    wifi_mode_t mode;
+
+    esp_wifi_get_config(ESP_IF_WIFI_STA, &wifi_config);
+    esp_wifi_get_mode(&mode);
+
     if (event_base == WIFI_EVENT)
     {
         switch (event_id)
         {
         case WIFI_EVENT_STA_START :
-            xEventGroupSetBits(s_wifi_event_group, WIFI_STA);
-            esp_wifi_connect();
+            ESP_LOGI(TAG, "starting connection");
+            if (*wifi_config.sta.ssid != 0)
+            {
+                xEventGroupSetBits(s_wifi_event_group, WIFI_STA);
+                statusConnect();
+            }
             break;
         case WIFI_EVENT_STA_STOP :
             xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED);
@@ -51,23 +67,36 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
             xEventGroupClearBits(s_wifi_event_group, WIFI_AP);
             break;
         case WIFI_EVENT_AP_STACONNECTED :
+            event = (wifi_event_ap_staconnected_t*)event_data;
+            ESP_LOGI(TAG, "station "MACSTR" join, AID=%d", MAC2STR(event->mac), event->aid);
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED);
             break;
         case WIFI_EVENT_AP_STADISCONNECTED :
+            event = (wifi_event_ap_staconnected_t*)event_data;
+            ESP_LOGI(TAG, "station "MACSTR" join, AID=%d", MAC2STR(event->mac), event->aid);
             xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED);
             break;
         case WIFI_EVENT_STA_DISCONNECTED :
             xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED);
-            if (s_retry_num < 3)
+            if ((s_retry_num < 3) && (*wifi_config.sta.ssid != 0) && (mode != WIFI_MODE_AP))
             {
-                esp_wifi_connect();
+                ESP_ERROR_CHECK(esp_wifi_connect());
                 s_retry_num++;
-                ESP_LOGI(TAG, "retry to connect to the AP");
+                ESP_LOGI(TAG, "retrying to connect to the access point");
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL);
+            }
+            else
+            {
+                ESP_LOGI(TAG, "failed to connect");
+                if (mode == WIFI_MODE_STA)
+                {
+                    esp_wifi_set_mode(WIFI_MODE_APSTA);
+                    ESP_LOGI(TAG, "connect failed, setting APSTA mode");
+                }
             }
             break;
         default :
-            ESP_LOGI(TAG, "WiFi event id: %d", event_id);
+            ESP_LOGI(TAG, "WiFi event id: %d", (int)event_id);
         }
     }
 
@@ -83,11 +112,16 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
             xEventGroupClearBits(s_wifi_event_group, WIFI_IP);
             break;
         default :
-            ESP_LOGI(TAG, "IP event id: %d", event_id);
+            ESP_LOGI(TAG, "IP event id: %d", (int)event_id);
         }
     }
 
-    //ESP_LOGI(TAG, "Flags: %x", xEventGroupGetBits(s_wifi_event_group));
+    ESP_LOGI(TAG, "Flags: %x", (int)xEventGroupGetBits(s_wifi_event_group));
+}
+
+void waittoConnect()
+{
+    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED | WIFI_FAIL, pdFALSE, pdFALSE, portMAX_DELAY);
 }
 
 void statusDisconnect()
@@ -99,7 +133,7 @@ void statusDisconnect()
 void statusConnect()
 {
     s_retry_num = 0;
-    esp_wifi_connect();
+    ESP_ERROR_CHECK(esp_wifi_connect());
 }
 
 int statusGet()
@@ -113,16 +147,27 @@ int statusGet()
         return 3;
 
     b = xEventGroupGetBits(s_wifi_event_group);
-    if ((b & 0x01) != 0)
+    if ((b & WIFI_CONNECTED) != 0)
         return 2;
 
     return 1;
 }
 
+bool statusIsConnecting()
+{
+    uint8_t b;
+
+    b = xEventGroupGetBits(s_wifi_event_group);
+    if ((b & WIFI_STA) == 0)
+        return true;
+    else
+        return false;
+}
+
 void statusReset()
 {
     gpio_set_level(GPIO_NUM_12, 0);
-    vTaskDelay(25 / portTICK_PERIOD_MS);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
     gpio_set_level(GPIO_NUM_12, 1);
 }
 
@@ -184,4 +229,73 @@ void statusInit()
     gpio_set_level(17, 1);
     gpio_set_level(16, 1);
     xTaskCreate(statusLoop, "status", 1024, NULL, 10, NULL);
+}
+
+static void statusLoop2(void* pvParameters)
+{
+    int t;
+    int pattern = 0;
+    int bits;
+    t = 0;
+    while (true)
+    {
+        vTaskDelay(25 / portTICK_PERIOD_MS);
+        t++;
+        if (pattern == 1)
+            led_strip_set_pixel(led_strip, 0, 16, 16, 16);
+        if (pattern == 2)
+            if (t == 40)
+                led_strip_set_pixel(led_strip, 0, 16, 16, 16);
+        if (pattern == 3)
+            if (t == 80)
+                led_strip_set_pixel(led_strip, 0, 16, 16, 16);
+        if (pattern == 4)
+            if (t == 160)
+                led_strip_set_pixel(led_strip, 0, 16, 16, 16);
+
+        led_strip_refresh(led_strip);
+
+        if (t > 160)
+        {
+            t = 0;
+            bits = xEventGroupGetBits(s_wifi_event_group);
+            pattern = 0;
+            if (bits == 0x0b)
+                pattern = 1;
+            if (bits == 0x04)
+                pattern = 4;
+            if (bits == 0x0c)
+                pattern = 3;
+            if (bits == 0x0f)
+                pattern = 2;
+
+            if (pattern != 0)
+                led_strip_clear(led_strip);
+        }
+    }
+}
+
+void statusInit2()
+{
+    s_wifi_event_group = xEventGroupCreate();
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
+
+    led_strip_config_t strip_config = 
+    {
+        .strip_gpio_num = 8,
+        .max_leds = 1,
+    };
+
+    led_strip_rmt_config_t rmt_config = 
+    {
+        .resolution_hz = 10 * 1000 * 1000, // 10MHz
+    };
+
+    led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip);
+    led_strip_clear(led_strip);
+
+    xTaskCreate(statusLoop2, "status", 1024, NULL, 10, NULL);
+
 }

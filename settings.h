@@ -5,6 +5,7 @@
  * @version 1.0
  */
 
+void setInterface(esp_netif_t *);
 int getVersion(void*, char*);
 int getModuleName(void*, char*);
 int setModuleName(void*, char*);
