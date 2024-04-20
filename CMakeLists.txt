@@ -1,4 +1,5 @@
-idf_component_register(SRCS "Parallax-ESP32.c" "config.c" "serbridge.c" "discovery.c" "httpd.c" "settings.c" "json.c" "captdns.c" "status.c" "parser.c" "cmds.c"
+idf_component_register(SRCS "Parallax-ESP32.c" "config.c" "wifi.c" "serbridge.c" "discovery.c" "httpd.c"
+                    "settings.c" "json.c" "captdns.c" "status.c" "parser.c" "cmds.c"
                     INCLUDE_DIRS "."
                     EMBED_FILES "upload_script.html")
 

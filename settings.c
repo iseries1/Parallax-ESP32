@@ -23,7 +23,6 @@ void setInterface(esp_netif_t *interface)
 int getVersion(void *data, char *value)
 {
     sprintf(value, "%s esp-idf(%d.%d.%d)", CONFIG_VERSION, ESP_IDF_VERSION_MAJOR, ESP_IDF_VERSION_MINOR, ESP_IDF_VERSION_PATCH);
-    //esp_get_idf_version());
     return 0;
 }
 
@@ -38,7 +37,6 @@ int setModuleName(void *data, char *value)
     memcpy(flashConfig.module_name, value, sizeof(flashConfig.module_name));
     flashConfig.module_name[sizeof(flashConfig.module_name) - 1] = '\0';
     esp_netif_set_hostname(Interface, flashConfig.module_name);
-//    tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, flashConfig.module_name);
     return 0;
 }
 

@@ -24,7 +24,6 @@
 #include "status.h"
 
 static const char* TAG = "cmds";
-static wifi_config_t wifi_config;
 
 static int Socket = -1;
 static char SRBuff[1024];
@@ -32,6 +31,8 @@ static char SRBuff[1024];
 extern esp_err_t register_uri();
 extern esp_err_t handleReply(int , char *, int , int);
 extern esp_err_t getVar(int, char *, char *);
+extern esp_err_t polling(int);
+
 
 void cmd_init(void)
 {
@@ -45,18 +46,20 @@ void doNothing(char* parms)
 
 void doJoin(char* parms)
 {
+    wifi_config_t config;
     char* p, *s;
 
     s = &parms[1];
     p = strchr(s, ',');
     if (p != NULL)
     {
+        esp_wifi_get_config(ESP_IF_WIFI_STA, &config);
         *p = 0;
-        strcpy((char*)wifi_config.sta.ssid, s);
+        strcpy((char*)config.sta.ssid, s);
         p++;
-        strcpy((char*)wifi_config.sta.password, p);
-        esp_wifi_disconnect();
-        esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config);
+        strcpy((char*)config.sta.password, p);
+        statusDisconnect();
+        esp_wifi_set_config(ESP_IF_WIFI_STA, &config);
         sendResponse('S', ERROR_NONE);
         statusConnect();
         return;
@@ -91,11 +94,13 @@ void doSend(char* parms)
         sendResponse('E', ERROR_INVALID_STATE);
         return;
     }
+
     i = 0;
     while (i < len)
     {
-       i += uart_read_bytes(UART_NUM_1, (uint8_t*)&SRBuff[i], 1024-i, 20 / portTICK_PERIOD_MS);
+        i += receiveBytes(&SRBuff[i], 1024-i);
     }
+
     if (Socket == -1)
     {
         sendResponse('E', ERROR_INVALID_STATE);
@@ -142,7 +147,7 @@ void doRecv(char* parms)
 
     sendResponse('S', len);
 
-    uart_write_bytes(UART_NUM_0, (const char*)SRBuff, len);
+    sendBytes(SRBuff, len);
 }
 
 void doConnect(char* parms)
@@ -205,16 +210,17 @@ void doConnect(char* parms)
         sendResponse('E', ERROR_CONNECT_FAILED);
         close(Socket);
         Socket = -1;
+        return;
     }
 
-    sendResponse('S', ERROR_NONE);
+    sendResponse('S', Socket);
 }
 
 void doClose(char* parms)
 {
-//    char* s;
+    int i;
 
-//    s = &parms[1];
+    i = atoi(parms);
 
     if (Socket == -1)
     {
@@ -233,7 +239,7 @@ void doListen(char *parms)
 
     s = &parms[1];
     p = strchr(s, ',');
-    if (p == NULL)
+    if ((p == NULL) && (*s < MIN_TOKEN))
     {
         sendResponse('E', ERROR_INVALID_ARGUMENT);
         return;
@@ -329,7 +335,7 @@ void doArg(char *parms)
 
 void doPoll(char *parms)
 {
-    char *p, *s;
+    char *s;
     int filter;
 
     s = &parms[1];
@@ -337,6 +343,8 @@ void doPoll(char *parms)
     if (filter == 0)
         filter = -1;
     
+    polling(filter);
+
     sendResponse('S', ERROR_NONE);
 }
 

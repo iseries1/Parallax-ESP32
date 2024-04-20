@@ -10,7 +10,6 @@
  * @brief start status loop
  */
 void statusInit(void);
-void statusInit2(void);
 void statusDisconnect(void);
 void statusConnect(void);
 bool statusIsConnecting(void);

@@ -92,7 +92,10 @@ HttpRedirect Red[] = {
 
 #define MAX_LOGS 1024
 static char log_buf[MAX_LOGS];
-static int log_head, log_tail;
+volatile int log_head, log_tail;
+httpd_handle_t server = NULL;
+httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+
 
 static cmd_def vars[] = {
     {   "version",          getVersion,         NULL,               NULL                            },
@@ -119,10 +122,11 @@ static cmd_def vars[] = {
 
 static const char* TAG = "httpd";
 
-static char UsrUri[10][25];
 static struct {
     httpd_handle_t hd;
     int fd;
+    char method;
+    char uri[32];
     char vars[128];
 } UsrReq[10];
 
@@ -137,7 +141,7 @@ static char HexDecode(char x)
 
 static int findArg(char* uri, char* arg, char* val)
 {
-    char buffer[256];
+    char buffer[128];
     char* e, *s;
     int i = 0;
     int t = 0;
@@ -184,9 +188,10 @@ static int findArg(char* uri, char* arg, char* val)
  */
 static esp_err_t redirect(httpd_req_t* req)
 {
-    char buffer[128];
+    char *buffer;
     int i, j;
 
+    buffer = ((struct file_server_data*)req->user_ctx)->scratch;
     strcpy(buffer, req->uri);
 
     i = strlen(buffer);
@@ -222,13 +227,14 @@ static esp_err_t redirect(httpd_req_t* req)
  */
 static esp_err_t PropSettings(httpd_req_t* req)
 {
-    char buffer[512];
+    char *buffer;
     char name[128], value[128], save[128];
     cmd_def* def = NULL;
     int i;
 
     memset(name, 0, sizeof(name));
-    httpd_req_get_url_query_str(req, buffer, sizeof(buffer));
+    buffer = ((struct file_server_data*)req->user_ctx)->scratch;
+    httpd_req_get_url_query_str(req, buffer, SCRATCH_BUFSIZE);
 
     if (def == NULL)
         i = 0;
@@ -299,7 +305,7 @@ static esp_err_t PropSettings(httpd_req_t* req)
  */
 esp_err_t doDirectory(httpd_req_t* req, const char *Dir)
 {
-    char Buffer[1024];
+    char *Buffer;
     char dirpath[32];
     char entrypath[FILE_PATH_MAX];
     char entrysize[16];
@@ -309,6 +315,7 @@ esp_err_t doDirectory(httpd_req_t* req, const char *Dir)
     struct dirent* entry;
     struct stat entry_stat;
 
+    Buffer = ((struct file_server_data*)req->user_ctx)->scratch;
     strcpy(dirpath, ((struct file_server_data*)req->user_ctx)->base_path);
     strcat(dirpath, Dir);
 
@@ -604,19 +611,21 @@ static esp_err_t handleRequests(httpd_req_t* req)
     /* process user added uri */
     for (int i=0;i<10;i++)
     {
-        if (*UsrUri[i] == NULL)
+        if (*UsrReq[i].uri == '\0')
             continue;
-        m = strchr(UsrUri[i], '*');
+
+        m = strchr(UsrReq[i].uri, '*');
         if (m != NULL)
-            p = m - UsrUri[i];
+            p = m - UsrReq[i].uri;
         else
-            p = strlen(UsrUri[i]);
+            p = strlen(UsrReq[i].uri);
         
-        if (memcmp(req->uri, UsrUri[i], p) == 0)
+        if (memcmp(req->uri, UsrReq[i].uri, p) == 0)
         {
-            ESP_LOGI(TAG, "Found URI: %s", UsrUri[i]);
+            ESP_LOGI(TAG, "Found URI: %s", UsrReq[i].uri);
             UsrReq[i].hd = req->handle;
             UsrReq[i].fd = httpd_req_to_sockfd(req);
+            UsrReq[i].method = req->method;
             if (req->method == HTTP_GET)
             {
                 httpd_req_get_url_query_str(req, UsrReq[i].vars, sizeof(UsrReq[i].vars));
@@ -849,13 +858,14 @@ static esp_err_t delete_post_handler(httpd_req_t* req)
 
 static esp_err_t propModuleInfo(httpd_req_t* req)
 {
-    char buffer[1024];
+    char *buffer;
     char value[32];
     uint8_t Mac[6];
     esp_netif_t* nf = NULL;
     esp_netif_ip_info_t info;
 
-    memset(buffer, 0, sizeof(buffer));
+    buffer = ((struct file_server_data*)req->user_ctx)->scratch;
+    memset(buffer, 0, SCRATCH_BUFSIZE);
     json_init(buffer);
     json_putStr("name", flashConfig.module_name);
     nf = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -922,25 +932,21 @@ static esp_err_t propRestoreDefaultSettings(httpd_req_t* req)
 static esp_err_t ajaxLog(httpd_req_t* req)
 {
     char buff[MAX_LOGS + 128];
-    char output[MAX_LOGS + 256];
-    int rd;
+    char *output;
+    char c;
     int i;
-    int log_len = log_tail - log_head;
+
+    int log_len = log_head - log_tail;
     if (log_len < 0)
         log_len += MAX_LOGS;
 
+    output = ((struct file_server_data*)req->user_ctx)->scratch;
     // start outputting
-    rd = log_head;
     i = 0;
-    while (i < MAX_LOGS + 128)
+    while (log_head != log_tail)
     {
-        if (rd == log_tail)
-        {
-            log_head = rd;
-            break;
-        }
-
-        uint8_t c = log_buf[rd];
+        c = log_buf[log_tail++];
+        log_tail = log_tail & (MAX_LOGS-1);
         switch (c)
         {
         case '\\':
@@ -962,16 +968,16 @@ static esp_err_t ajaxLog(httpd_req_t* req)
         default:
             buff[i++] = c;
         }
-        rd++;
-        if (rd >= MAX_LOGS)
-            rd -= MAX_LOGS;
     }
+
     buff[i] = 0;
     sprintf(output, "{\"len\":%d, \"start\":0, \"text\": \"", i);
     strcat(output, buff);
     strcat(output, "\"}");
     i = strlen(output);
     sprintf(buff, "%d", i);
+
+    ESP_LOGI(TAG, "Outputing Data, %d", i);
 
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_send(req, output, i);
@@ -980,13 +986,13 @@ static esp_err_t ajaxLog(httpd_req_t* req)
 
 esp_err_t logData(char d)
 {
-    log_buf[log_tail++] = d;
-    if (log_tail >= MAX_LOGS)
-        log_tail -= MAX_LOGS;
+    log_buf[log_head++] = d;
+    log_head = log_head & (MAX_LOGS-1);
+
     if (log_head == log_tail)
-        log_head++;
-    if (log_head >= MAX_LOGS)
-        log_head -= MAX_LOGS;
+        log_tail++;
+    
+    log_tail = log_tail & (MAX_LOGS-1);
 
     return ESP_OK;
 }
@@ -1031,13 +1037,14 @@ esp_err_t logInit()
 //Find access points
 esp_err_t WiFiScan(httpd_req_t* req)
 {
-    char Buffer[1024];
+    char *Buffer;
     char size[16];
     int i;
     uint16_t number = DEFAULT_SCAN_LIST_SIZE;
     wifi_ap_record_t ap_info[DEFAULT_SCAN_LIST_SIZE];
 
-    httpd_req_get_url_query_str(req, Buffer, sizeof(Buffer));
+    Buffer = ((struct file_server_data*)req->user_ctx)->scratch;
+    httpd_req_get_url_query_str(req, Buffer, SCRATCH_BUFSIZE);
 
     uint16_t ap_count = 0;
     memset(ap_info, 0, sizeof(ap_info));
@@ -1049,14 +1056,20 @@ esp_err_t WiFiScan(httpd_req_t* req)
         ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(&ap_count));
         ESP_LOGI(TAG, "Total APs found = %u", ap_count);
     }
+    else
+        number = 0;
 
-    memset(Buffer, 0, sizeof(Buffer));
+    memset(Buffer, 0, SCRATCH_BUFSIZE);
 
     json_init(Buffer);
     json_putObject("result");
-    json_putStr("inProgress", "0");
+    if (number == 0)
+        json_putStr("inProgress", "1");
+    else
+        json_putStr("inProgress", "0");
+
     json_putArray("APs");
-    for (i = 0; i < ap_count; i++)
+    for (i = 0; i < number; i++)
     {
         if (i != 0)
             json_putMore();
@@ -1066,6 +1079,8 @@ esp_err_t WiFiScan(httpd_req_t* req)
         json_putDec("enc", itoa(ap_info[i].authmode, size, 10));
         json_putDec("channel", itoa(ap_info[1].primary, size, 10));
     }
+    if (number == 0)
+        json_putStr("none", "");
     json_putArray(NULL);
     json_putObject(NULL);
     i = strlen(Buffer);
@@ -1078,7 +1093,7 @@ esp_err_t WiFiScan(httpd_req_t* req)
 
 esp_err_t WiFiConnStatus(httpd_req_t* req)
 {
-    char Buffer[1024];
+    char *Buffer;
     char value[128];
     int status;
     esp_netif_t* nf = NULL;
@@ -1086,7 +1101,8 @@ esp_err_t WiFiConnStatus(httpd_req_t* req)
 
     status = statusGet();
 
-    memset(Buffer, 0, sizeof(Buffer));
+    Buffer = ((struct file_server_data*)req->user_ctx)->scratch;
+    memset(Buffer, 0, SCRATCH_BUFSIZE);
     json_init(Buffer);
     switch (status)
     {
@@ -1116,14 +1132,17 @@ esp_err_t WiFiConnStatus(httpd_req_t* req)
 
 esp_err_t WiFiConnect(httpd_req_t* req)
 {
-    char Buffer[512];
+    int i;
+    char *Buffer;
     char essid[32];
     char passwd[128];
     wifi_config_t wifi_config;
 
-    memset(Buffer, 0, sizeof(Buffer));
+    Buffer = ((struct file_server_data*)req->user_ctx)->scratch;
+    memset(Buffer, 0, SCRATCH_BUFSIZE);
 
-    httpd_req_recv(req, Buffer, sizeof(Buffer));
+    i = httpd_req_recv(req, Buffer, SCRATCH_BUFSIZE);
+    ESP_LOGI(TAG, "Post size: %d", i);
 
     if (findArg(Buffer, "essid", essid) != 0)
     {
@@ -1141,22 +1160,25 @@ esp_err_t WiFiConnect(httpd_req_t* req)
     }
     ESP_LOGI(TAG, "passwd: %s", passwd);
 
-    esp_wifi_disconnect();
+    statusDisconnect();
+    esp_wifi_get_config(ESP_IF_WIFI_STA, &wifi_config);
     strcpy((char*)wifi_config.sta.ssid, essid);
     strcpy((char*)wifi_config.sta.password, passwd);
     esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config);
-
+    statusConnect();
+    
     return redirect(req);
 }
 
 esp_err_t WiFiSetMode(httpd_req_t* req)
 {
-    char Buffer[128];
+    char *Buffer;
     char value[128];
     wifi_mode_t mode;
     wifi_mode_t x;
 
-    httpd_req_get_url_query_str(req, Buffer, sizeof(Buffer));
+    Buffer = ((struct file_server_data*)req->user_ctx)->scratch;
+    httpd_req_get_url_query_str(req, Buffer, SCRATCH_BUFSIZE);
     findArg(Buffer, "mode", value);
 
     if (strcmp(value, "STA") == 0)
@@ -1211,12 +1233,13 @@ esp_err_t PropReset(httpd_req_t* req)
 
 esp_err_t PropLoad(httpd_req_t* req)
 {
-    char Buffer[1026];
+    char *Buffer;
 
-    httpd_req_get_url_query_str(req, Buffer, sizeof(Buffer));
+    Buffer = ((struct file_server_data*)req->user_ctx)->scratch;
+    httpd_req_get_url_query_str(req, Buffer, SCRATCH_BUFSIZE);
     printf(Buffer);
     printf("\r\n");
-    httpd_req_recv(req, Buffer, sizeof(Buffer));
+    httpd_req_recv(req, Buffer, SCRATCH_BUFSIZE);
     printf(Buffer);
     printf("\r\n");
 
@@ -1242,9 +1265,9 @@ HttpdBuiltInUrl builtInUrls[] = {
     {"/wx/module-info", HTTP_GET, propModuleInfo},
     {"/wx/setting", HTTP_GET, PropSettings},
     {"/wx/setting", HTTP_POST, PropSettings},
-    {"/wx/save-settings", HTTP_GET, propSaveSettings},
-    {"/wx/restore-settings", HTTP_GET, propRestoreSettings},
-    {"/wx/restore-default-settings", HTTP_GET, propRestoreDefaultSettings},
+    {"/wx/save-settings", HTTP_POST, propSaveSettings},
+    {"/wx/restore-settings", HTTP_POST, propRestoreSettings},
+    {"/wx/restore-default-settings", HTTP_POST, propRestoreDefaultSettings},
     {"/wifi/", HTTP_GET, redirect},
     {"/wifi", HTTP_GET, redirect},
     {"/websocket", HTTP_GET, redirect},
@@ -1281,59 +1304,6 @@ HttpdBuiltInUrl builtInUrls[] = {
     {"/*", HTTP_POST, handleRequests},
     {NULL, 0, NULL}
 };
-
-/* Function to start the HTTP server */
-esp_err_t httpdInit(int port)
-{
-  httpd_handle_t server = NULL;
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-
-
-  httpd_uri_t hd;
-  int i;
-
-  if (server_data)
-  {
-    ESP_LOGE(TAG, "HTTP server already started");
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  /* Allocate memory for server data */
-  server_data = calloc(1, sizeof(struct file_server_data));
-  if (!server_data)
-  {
-    ESP_LOGE(TAG, "Failed to allocate memory for server data");
-    return ESP_ERR_NO_MEM;
-  }
-
-  strlcpy(server_data->base_path, "/spiffs", sizeof(server_data->base_path));
-
-  config.max_uri_handlers = MAXHANDLERS;
-  config.uri_match_fn = httpd_uri_match_wildcard;
-
-  ESP_LOGI(TAG, "Starting HTTP Server");
-  if (httpd_start(&server, &config) != ESP_OK)
-  {
-    ESP_LOGE(TAG, "Failed to start file server!");
-    return ESP_FAIL;
-  }
-
-  i = 0;
-  while (builtInUrls[i].url != NULL)
-  {
-      hd.uri = builtInUrls[i].url;
-      hd.method = builtInUrls[i].meth;
-      hd.handler = builtInUrls[i].handler;
-      hd.user_ctx = server_data;
-
-      httpd_register_uri_handler(server, &hd);
-      i++;
-  }
-
-  memset(UsrUri, 0, sizeof(UsrUri));
-
-  return ESP_OK;
-}
 
 void doGet(char* parms)
 {
@@ -1405,10 +1375,11 @@ esp_err_t register_uri(char *uri)
 {
     for (int i=0;i<10;i++)
     {
-        if (UsrUri[i][0] == 0)
+        if (UsrReq[i].uri[0] == '\0')
         {
-            strcpy(UsrUri[i], uri);
+            strcpy(UsrReq[i].uri, uri);
             UsrReq[i].fd = -1;
+            UsrReq[i].method = ' ';
             return ESP_OK;
         }
     }
@@ -1439,6 +1410,9 @@ esp_err_t handleReply(int handle, char *code, int tcount, int count)
     
     i = httpd_socket_send(hd, fd, Buffer, count, 0);
 
+    UsrReq[handle].fd = -1;
+    UsrReq[handle].method = ' ';
+
     return ESP_OK;
 }
 
@@ -1451,4 +1425,104 @@ esp_err_t getVar(int handle, char *name, char *value)
     }
 
     return ESP_OK;
+}
+
+esp_err_t polling(int filter)
+{
+    int results;
+
+    results = 0;
+
+    for (int i=0;i<10;i++)
+    {
+        if (UsrReq[i].fd >= 0)
+            if ((filter & (1 << i)) != 0)
+                sendResponseP(UsrReq[i].method, UsrReq[i].fd, 0);
+    }
+
+    if (results == 0)
+        sendResponseP('N', 0, 0);
+
+    return ESP_OK;
+}
+
+/* Function to start the HTTP server */
+esp_err_t httpdInit(int port)
+{
+  httpd_uri_t hd;
+  int i;
+
+  if (server_data)
+  {
+    ESP_LOGE(TAG, "HTTP server already started");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  /* Allocate memory for server data */
+  server_data = calloc(1, sizeof(struct file_server_data));
+  if (!server_data)
+  {
+    ESP_LOGE(TAG, "Failed to allocate memory for server data");
+    return ESP_ERR_NO_MEM;
+  }
+
+  strlcpy(server_data->base_path, "/spiffs", sizeof(server_data->base_path));
+
+  config.server_port = port;
+  config.max_uri_handlers = MAXHANDLERS;
+  config.uri_match_fn = httpd_uri_match_wildcard;
+
+  ESP_LOGI(TAG, "Starting HTTP Server");
+  if (httpd_start(&server, &config) != ESP_OK)
+  {
+    ESP_LOGE(TAG, "Failed to start file server!");
+    return ESP_FAIL;
+  }
+
+  i = 0;
+  while (builtInUrls[i].url != NULL)
+  {
+      hd.uri = builtInUrls[i].url;
+      hd.method = builtInUrls[i].meth;
+      hd.handler = builtInUrls[i].handler;
+      hd.user_ctx = server_data;
+
+      httpd_register_uri_handler(server, &hd);
+      i++;
+  }
+
+  memset(UsrReq, 0, sizeof(UsrReq));
+
+  return ESP_OK;
+}
+
+esp_err_t httpRestart()
+{
+  httpd_uri_t hd;
+  int i;
+
+  httpd_stop(server);
+
+  ESP_LOGI(TAG, "Restarting HTTP Server");
+  if (httpd_start(&server, &config) != ESP_OK)
+  {
+    ESP_LOGE(TAG, "Failed to start file server!");
+    return ESP_FAIL;
+  }
+
+  i = 0;
+  while (builtInUrls[i].url != NULL)
+  {
+      hd.uri = builtInUrls[i].url;
+      hd.method = builtInUrls[i].meth;
+      hd.handler = builtInUrls[i].handler;
+      hd.user_ctx = server_data;
+
+      httpd_register_uri_handler(server, &hd);
+      i++;
+  }
+
+  memset(UsrReq, 0, sizeof(UsrReq));
+
+  return ESP_OK;
 }

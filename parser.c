@@ -27,11 +27,11 @@ char Tokens[][10] = {"", "JOIN", "CHECK", "SET", "POLL", "PATH", "SEND", "RECV",
                      "ARG", "REPLY", "CONNECT", "APSCAN", "APGET", "FINFO", "FCOUNT", "FRUN", "UDP"};
 
 char inBuffer[1024];
+int iHead, iTail;
 char outBuffer[1024];
 
-int In, Out;
+volatile int In, Out;
 bool parse;
-bool volatile hold;
 
 void sendResponse(char resp, int value)
 {
@@ -39,7 +39,7 @@ void sendResponse(char resp, int value)
     int len;
 
     len = sprintf(Buf, "%c=%c,%d\r", TKN_START, resp, value);
-    uart_write_bytes(UART_NUM_1, (const char*)Buf, len);
+    sendBytes(Buf, len);
 }
 
 void sendResponseT(char* value)
@@ -48,7 +48,23 @@ void sendResponseT(char* value)
     int len;
 
     len = sprintf(Buf, "%c=S,%s\r", TKN_START, value);
-    uart_write_bytes(UART_NUM_1, (const char*)Buf, len);
+    sendBytes(Buf, len);
+}
+
+int sendBytes(char *Buf, int len)
+{
+    int i;
+
+    i = uart_write_bytes(UART_NUM_0, Buf, len);
+    return i;
+}
+
+int receiveBytes(char *buffer, int len)
+{
+    int i;
+
+    i = uart_read_bytes(UART_NUM_0, buffer, len, 20 / portTICK_PERIOD_MS);
+    return i;
 }
 
 void sendResponseP(char type, int handle, int id)
@@ -57,22 +73,16 @@ void sendResponseP(char type, int handle, int id)
     int len;
 
     len = sprintf(Buf, "%c=%c:%d,%d\r", TKN_START, type, handle, id);
-    uart_write_bytes(UART_NUM_1, (const char*)Buf, len);
+    sendBytes(Buf, len);
 }
 
 void receive(char* data, int len)
 {
-    while (hold)
+    while (In > 0)
         vTaskDelay(200 / portTICK_PERIOD_MS);
 
-    hold = true;
-    if ((In + len) > 1023)
-        len = 1023 - In;
-
-    memcpy(&inBuffer[In], data, len);
-    In = In + len;
-    inBuffer[In] = 0;
-    hold = false;
+    memcpy(inBuffer, data, len);
+    In = len;
 }
 
 void doCmd()
@@ -143,22 +153,21 @@ void parserInit()
         .source_clk = UART_SCLK_APB,
     };
 
-    uart_driver_install(UART_NUM_1, BUFFSIZE * 2, 0, 0, NULL, 0);
-    uart_param_config(UART_NUM_1, &uart_config);
-    uart_set_pin(UART_NUM_1, 6, 5, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_driver_install(UART_NUM_0, BUFFSIZE * 2, 0, 0, NULL, 0);
+    uart_param_config(UART_NUM_0, &uart_config);
+    uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
     // Configure a buffer for the incoming data
-    uint8_t data; // = (uint8_t*)malloc(BUFFSIZE);
+    char data; // = (uint8_t*)malloc(BUFFSIZE);
 
     In = 0;
     Out = 0;
     parse = false;
-    hold = false;
     c = -1;
 
     while (true)
     {
-        len = uart_read_bytes(UART_NUM_1, &data, 1, 20 / portTICK_PERIOD_MS);
+        len = receiveBytes(&data, 1);
 
         if (len > 0)
         {
@@ -217,12 +226,10 @@ void parserInit()
             Out = 0;
         }
 
-        if ((In > 0) && (!hold))
+        if (In > 0)
         {
-            hold = true;
-            uart_write_bytes(UART_NUM_1, (const char*)inBuffer, In);
+            sendBytes(inBuffer, In);
             In = 0;
-            hold = false;
         }
     }
 }

@@ -33,6 +33,22 @@ void sendResponseT(char*);
 void sendResponseP(char, int, int);
 
 /**
+ * @brief Send Bytes to serial port
+ * @param buf buffer pointer to data
+ * @param len length of data to send
+ * @return status number of bytes sent or error
+*/
+int sendBytes(char *Buf, int len);
+
+/**
+ * @brief Receive Serial Bytes
+ * @param buffer for data to receive
+ * @param len length of data to receive
+ * @return status number of bytes or error
+*/
+int receiveBytes(char *buffer, int len);
+
+/**
  * @brief Receive data from telnet
  * @param data character data
  * @param len length of data

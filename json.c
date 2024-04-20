@@ -64,7 +64,7 @@ short json_getItem()
     switch (ItemData[ItemPointer])
     {
       case '{':
-        if (ItemE[0] > 0)
+        if ((ItemE[0] > 0) && (quote == 0))
           strcpy(ItemPath[ItemLevel++], ItemE);
         break;
       case '\"':
@@ -179,6 +179,7 @@ void json_putStr(char *item, char *value)
   }
   ItemData[ItemPointer++] = Quote;
   ItemData[ItemPointer] = jEnd;
+  ItemData[ItemPointer+1] = 0;
 }
 
 void json_putDec(char *item, char *value)
@@ -201,6 +202,7 @@ void json_putDec(char *item, char *value)
   strcpy(&ItemData[ItemPointer], value);
   ItemPointer += strlen(value);
   ItemData[ItemPointer] = jEnd;
+  ItemData[ItemPointer+1] = 0;
 }
 
 void json_putArray(char* item)
@@ -230,6 +232,7 @@ void json_putArray(char* item)
     ItemData[ItemPointer++] = ' ';
     ItemData[ItemPointer++] = '[';
     ItemData[ItemPointer] = jEnd;
+    ItemData[ItemPointer+1] = 0;
 }
 
 void json_putObject(char* item)
@@ -257,6 +260,7 @@ void json_putObject(char* item)
     ItemData[ItemPointer++] = ':';
     ItemData[ItemPointer++] = ' ';
     ItemData[ItemPointer] = jEnd;
+    ItemData[ItemPointer+1] = 0;
 }
 
 void json_putMore()

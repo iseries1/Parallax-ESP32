@@ -25,6 +25,7 @@
 #include "driver/uart.h"
 
 #include "config.h"
+#include "wifi.h"
 #include "serbridge.h"
 #include "discovery.h"
 #include "httpd.h"
@@ -33,8 +34,6 @@
 #include "parser.h"
 
 static const char *TAG = "main";
-static wifi_config_t wifi_config;
-
 
 esp_err_t initNVS()
 {
@@ -49,51 +48,25 @@ esp_err_t initNVS()
   return e;
 }
 
-
-esp_err_t startWiFi()
-{
-    esp_netif_t* nf;
-    wifi_mode_t mode;
-
-  ESP_ERROR_CHECK(esp_netif_init());
-
-  nf = esp_netif_create_default_wifi_sta();
-  esp_netif_create_default_wifi_ap();
-
-  ESP_ERROR_CHECK(esp_netif_set_hostname(nf, flashConfig.module_name));
-
-  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-  //strcpy((char*)wifi_config.sta.ssid, CONFIG_ESP_WIFI_SSID);
-  //strcpy((char*)wifi_config.sta.password, CONFIG_ESP_WIFI_PASSWORD);
-  wifi_config.sta.pmf_cfg.capable = true;
-  wifi_config.sta.pmf_cfg.required = false;
-
-  wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-
-  if (esp_wifi_get_mode(&mode) != ESP_OK)
-  {
-      ESP_LOGI(TAG, "configuration set");
-      ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-      ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
-  }
-
-  ESP_ERROR_CHECK(esp_wifi_start());
-
-  if (mode == WIFI_MODE_STA)
-  {
-      waittoConnect();
-  }
-
-  return ESP_OK;
-}
-
 // Main application entry point
 void app_main(void)
 {
-  int restoreOk;
   esp_err_t ret;
+
+  // Initialize NVS
+  ret = initNVS();
+
+  if ((ret = configRestore()) != ESP_OK)
+    configSave();
+
+  ESP_LOGI(TAG, "finished configRestore: %d", ret);
+
+  statusInit();
+
+  //Startup WiFi
+  startWiFi();
+
+  serbridgeInit(23);
 
   esp_vfs_spiffs_conf_t spiff_conf =
    {
@@ -116,33 +89,11 @@ void app_main(void)
   vTaskDelay(2000/portTICK_PERIOD_MS);
 
   size_t total = 0, used = 0;
-  ret = esp_spiffs_info(NULL, &total, &used);
+  ret = esp_spiffs_info(spiff_conf.partition_label, &total, &used);
   if (ret != ESP_OK)
     ESP_LOGI(TAG, "Failed to get spiffs information %s", esp_err_to_name(ret));
   else
     ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
-
-  // Initialize NVS
-  ESP_ERROR_CHECK(initNVS());
-
-  if (!(restoreOk = configRestore()))
-    configSave();
-
-  ESP_LOGI(TAG, "finished configRestore");
-
-  // change to statusInit2 for c3 unit
-#ifdef CONFIG_IDF_TARGET_ESP32
-  statusInit();
-#endif
-
-#ifdef CONFIG_IDF_TARGET_ESP32C3
-  statusInit2();
-#endif
-
-  //Startup WiFi
-  startWiFi();
-
-  serbridgeInit(23);
 
   initDiscovery();
   //cgiPropInit();

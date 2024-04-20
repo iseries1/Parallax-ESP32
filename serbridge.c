@@ -9,7 +9,6 @@
 #include "parser.h"
 
 
-int sIn, sOut;
 static const char* TAG = "serbridge";
 static int _PORT;
 int currentSocket;
@@ -18,13 +17,11 @@ static void doTerminal()
 {
   int len;
   char rx_buffer[1024];
-  sIn = 0;
-  sOut = 0;
 
   len = 0;
   do
   {
-      len = recv(currentSocket, rx_buffer, sizeof(rx_buffer) - 1, 0);
+      len = recv(currentSocket, rx_buffer, sizeof(rx_buffer), 0);
       if (len < 0)
       {
           ESP_LOGE(TAG, "Error occurred during receiving: errno %d", errno);

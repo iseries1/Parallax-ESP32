@@ -25,15 +25,16 @@ static const char* TAG = "config";
 
 FlashConfig flashConfig;
 FlashConfig flashDefault = {
+  .seq                  = 0,
   .version              = FLASH_VERSION,
   .reset_pin            = MCU_RESET_PIN,
   .conn_led_pin         = LED_CONN_PIN,
   .loader_baud_rate     = LOADER_BAUD_RATE,
   .baud_rate            = BAUD_RATE,
   .dbg_baud_rate        = BAUD_RATE,
-  .enable               = 0,
+  .enable               = 1,
   .start                = TKN_START,
-  .events               = 0,
+  .events               = 1,
   .dbg_enable           = 0,
   .loader               = 0
 };
@@ -52,6 +53,7 @@ esp_err_t configSave(void)
     return err;
   }
 
+  err = nvs_set_u32(my_handle, "seq", flashConfig.seq++);
   err = nvs_set_u32(my_handle, "version", flashConfig.version);
   err = nvs_set_i32(my_handle, "loaderbaudrate", flashConfig.loader_baud_rate);
   err = nvs_set_i32(my_handle, "baudrate", flashConfig.baud_rate);
@@ -65,6 +67,8 @@ esp_err_t configSave(void)
   err = nvs_set_str(my_handle, "modulename", flashConfig.module_name);
   err = nvs_commit(my_handle);
   nvs_close(my_handle);
+
+  ESP_LOGI(TAG, "Configuration Saved");
 
   return err;
 }
@@ -88,7 +92,7 @@ esp_err_t configRestore(void)
     if (!configRestoreDefaults())
       return err;
 
-    return ESP_OK;
+    return ESP_ERR_NOT_FOUND;
   }
 
   err = nvs_get_i32(my_handle, "loaderbaudrate", &flashConfig.loader_baud_rate);
@@ -100,6 +104,7 @@ esp_err_t configRestore(void)
   err = nvs_get_u8(my_handle, "start", &flashConfig.start);
   err = nvs_get_i8(my_handle, "dbgenable", &flashConfig.dbg_enable);
   err = nvs_get_i8(my_handle, "loader", &flashConfig.loader);
+  err = nvs_get_u32(my_handle, "seq", &flashConfig.seq);
   sz = sizeof(flashConfig.module_name);
   err = nvs_get_str(my_handle, "modulename", flashConfig.module_name, &sz);
   nvs_close(my_handle);
@@ -112,6 +117,7 @@ esp_err_t configRestoreDefaults(void)
   uint8_t value[7];
   char Buffer[10];
 
+  ESP_LOGI(TAG, "Config Defaults");
   memcpy(&flashConfig, &flashDefault, sizeof(FlashConfig));
   esp_efuse_mac_get_default(value);
   sprintf(Buffer, "%02x%02x%02x", value[3], value[4], value[5]);
