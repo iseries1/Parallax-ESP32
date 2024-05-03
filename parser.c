@@ -79,7 +79,7 @@ void sendResponseP(char type, int handle, int id)
 void receive(char* data, int len)
 {
     while (In > 0)
-        vTaskDelay(200 / portTICK_PERIOD_MS);
+        Delay(200);
 
     memcpy(inBuffer, data, len);
     In = len;

@@ -17,6 +17,7 @@
 #include "driver/gpio.h"
 #include "led_strip.h"
 #include "status.h"
+#include "config.h"
 
 #define WIFI_CONNECTED 0x01
 #define WIFI_STA       0x02
@@ -126,7 +127,7 @@ void statusDisconnect()
 {
     s_retry_num = 5;
     esp_wifi_disconnect();
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    Delay(1000);
 }
 
 void statusConnect()
@@ -168,9 +169,9 @@ bool statusIsConnecting()
 
 void statusReset()
 {
-    gpio_set_level(GPIO_NUM_12, 0);
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-    gpio_set_level(GPIO_NUM_12, 1);
+    gpio_set_level(flashConfig.reset_pin, 0);
+    Delay(40);
+    gpio_set_level(flashConfig.reset_pin, 1);
 }
 
 static void statusLoop(void* pvParameters)
@@ -181,7 +182,7 @@ static void statusLoop(void* pvParameters)
     t = 0;
     while (true)
     {
-        vTaskDelay(25 / portTICK_PERIOD_MS);
+        Delay(25);
         t++;
         if (pattern == 1)
             gpio_set_level(18, 1);
@@ -223,7 +224,7 @@ static void statusLoop3(void* pvParameters)
     t = 0;
     while (true)
     {
-        vTaskDelay(25 / portTICK_PERIOD_MS);
+        Delay(25);
         t++;
         if (pattern == 1)
             gpio_set_level(8, 1);
@@ -265,7 +266,7 @@ static void statusLoop2(void* pvParameters)
     t = 0;
     while (true)
     {
-        vTaskDelay(25 / portTICK_PERIOD_MS);
+        Delay(25);
         t++;
         if (pattern == 1)
             led_strip_set_pixel(led_strip, 0, 16, 16, 16);
@@ -311,9 +312,12 @@ void statusInit()
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
 
-    gpio_set_direction(GPIO_NUM_12, GPIO_MODE_DEF_OUTPUT); //reset pin
-    gpio_set_level(GPIO_NUM_12, 1);
-
+    /* Reset pin config */
+    gpio_reset_pin(flashConfig.reset_pin);
+    gpio_set_direction(flashConfig.reset_pin, GPIO_MODE_OUTPUT);
+    gpio_set_level(flashConfig.reset_pin, 1);
+    ESP_LOGI(TAG, "Reset Pin %d, set", flashConfig.reset_pin);
+    
 #ifdef CONFIG_STRIP
     led_strip_config_t strip_config = 
     {

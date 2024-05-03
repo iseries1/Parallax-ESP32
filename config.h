@@ -32,3 +32,4 @@ int8_t softap_set_ssid(const char *ssid, int size);
 
 #endif
 
+#define Delay(x) vTaskDelay(x / portTICK_PERIOD_MS)

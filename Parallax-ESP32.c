@@ -76,7 +76,7 @@ void app_main(void)
     .format_if_mount_failed = false
    };
 
-  vTaskDelay(1000/portTICK_PERIOD_MS);
+  Delay(1000);
 
   ESP_LOGI(TAG, "Starting");
 
@@ -86,7 +86,7 @@ void app_main(void)
   else
     ESP_LOGI(TAG, "Spiffs Registered");
 
-  vTaskDelay(2000/portTICK_PERIOD_MS);
+  Delay(2000);
 
   size_t total = 0, used = 0;
   ret = esp_spiffs_info(spiff_conf.partition_label, &total, &used);
@@ -111,7 +111,7 @@ void app_main(void)
 
   while (true)
   {
-    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    Delay(5000);
   }
 }
 

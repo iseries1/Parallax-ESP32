@@ -13,6 +13,7 @@ the internal webserver.
 #include "esp_netif.h"
 #include "esp_log.h"
 #include "string.h"
+#include "config.h"
 
 static int sockFd;
 static const char* TAG = "captdns";
@@ -275,7 +276,7 @@ static void captdnsTask(void* pvParameters) {
 		sockFd = socket(AF_INET, SOCK_DGRAM, 0);
 		if (sockFd == -1) {
 			ESP_LOGE(TAG, "captdns_task failed to create sock!");
-			vTaskDelay(1000 / portTICK_PERIOD_MS);
+			Delay(1000);
 		}
 	} while (sockFd == -1);
 
@@ -283,7 +284,7 @@ static void captdnsTask(void* pvParameters) {
 		ret = bind(sockFd, (struct sockaddr*) & server_addr, sizeof(server_addr));
 		if (ret != 0) {
 			ESP_LOGE(TAG, "captdns_task failed to bind sock!");
-			vTaskDelay(1000 / portTICK_PERIOD_MS);
+			Delay(1000);
 		}
 	} while (ret != 0);
 

@@ -244,14 +244,10 @@ int setDbgBaudrate(void *data, char *value)
 
 int setResetPin(void *data, char *value)
 {
-    gpio_config_t io_conf;
 
     flashConfig.reset_pin = atoi(value);
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = (1ULL << flashConfig.reset_pin);
-    io_conf.pull_down_en = 0;
-    io_conf.pull_up_en = 0;
-    gpio_config(&io_conf);
+    gpio_reset_pin(flashConfig.reset_pin);
+    gpio_set_direction(flashConfig.reset_pin, GPIO_MODE_OUTPUT);
     gpio_set_level(flashConfig.reset_pin, 1);
     return 0;
 }

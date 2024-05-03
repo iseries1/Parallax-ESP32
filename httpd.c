@@ -1223,8 +1223,7 @@ esp_err_t PropReset(httpd_req_t* req)
 {
     statusReset();
 
-    printf("Prop Reset\r\n");
-
+    ESP_LOGI(TAG, "Prop Reset");
     httpd_resp_set_type(req, "text/plain");
     //httpd_resp_set_hdr(req, "Content-Length", "0");
     httpd_resp_send(req, NULL, 0);
