@@ -56,6 +56,12 @@ void app_main(void)
   // Initialize NVS
   ret = initNVS();
 
+  logInit();
+
+#ifdef CONFIG_LOGGING
+  ESP_LOGI(TAG, "Verbose Logging");
+#endif
+
   if ((ret = configRestore()) != ESP_OK)
     configSave();
 
@@ -104,8 +110,6 @@ void app_main(void)
   captdnsInit();
 
   ESP_LOGI(TAG, "Ready");
-
-  logInit();
 
   parserInit();
 

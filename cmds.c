@@ -239,15 +239,19 @@ void doListen(char *parms)
 
     s = &parms[1];
     p = strchr(s, ',');
-    if ((p == NULL) && (*s < MIN_TOKEN))
+    if (p == NULL)
     {
-        sendResponse('E', ERROR_INVALID_ARGUMENT);
-        return;
+        if (*s < MIN_TOKEN)
+        {
+            sendResponse('E', ERROR_INVALID_ARGUMENT);
+            return;
+        }
+        p = s;
     }
 
     p++;
     
-    ESP_LOGI(TAG, "<%s>", p);
+    ESP_LOGI(TAG, "Listening for:<%s>", p);
 
     register_uri(p);
 
@@ -294,6 +298,8 @@ void doReply(char *parms)
         tcount = count;
         ESP_LOGI(TAG, "CallingReply with:%d", count);
         handleReply(handle, code, tcount, count);
+        sendResponse('S', ERROR_NONE);
+        return;
     }
 
     *p = 0;

@@ -229,16 +229,16 @@ int setMACAddress(void *data, char *value)
 int setBaudrate(void *data, char *value)
 {
     flashConfig.baud_rate = atoi(value);
-    uart_flush_input(0);
-    uart_set_baudrate(0, flashConfig.baud_rate);
+    uart_flush_input(UART_NUM_0);
+    uart_set_baudrate(UART_NUM_0, flashConfig.baud_rate);
     return 0;
 }
 
 int setDbgBaudrate(void *data, char *value)
 {
     flashConfig.dbg_baud_rate = atoi(value);
-    uart_flush_input(1);
-    uart_set_baudrate(1, flashConfig.dbg_baud_rate);
+    uart_flush_input(UART_NUM_1);
+    uart_set_baudrate(UART_NUM_1, flashConfig.dbg_baud_rate);
     return 0;
 }
 

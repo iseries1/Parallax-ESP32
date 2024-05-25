@@ -4,6 +4,15 @@ menu "Parallax ESP32 Configuration"
         string "Version Number"
         default "5.0"
 
+    choice LOGGING
+        prompt "Logging On"
+        default NO_LOGGING
+        config NO_LOGGING
+            bool "NO_LOGGING"
+        config LOGGING
+            bool "LOGGING"
+    endchoice
+    
     choice ESP_LED_TYPE
         prompt "LED TYPE selection"
         default NO_LED

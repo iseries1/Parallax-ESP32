@@ -19,7 +19,7 @@
 #define LOADER_BAUD_RATE    115200
 #define BAUD_RATE           115200
 #define ONE_STOP_BIT        1
-#define FLASH_VERSION       1
+#define FLASH_VERSION       2
 
 static const char* TAG = "config";
 
@@ -57,24 +57,26 @@ esp_err_t configSave(void)
   err = nvs_set_u32(my_handle, "version", flashConfig.version);
   err = nvs_set_i32(my_handle, "loaderbaudrate", flashConfig.loader_baud_rate);
   err = nvs_set_i32(my_handle, "baudrate", flashConfig.baud_rate);
-  err = nvs_set_i32(my_handle, "dbgbaudrate", flashConfig.baud_rate);
+  err = nvs_set_i32(my_handle, "dbgbaudrate", flashConfig.dbg_baud_rate);
   err = nvs_set_i8(my_handle, "connledpin", flashConfig.conn_led_pin);
   err = nvs_set_i8(my_handle, "resetpin", flashConfig.reset_pin);
   err = nvs_set_i8(my_handle, "enable", flashConfig.enable);
   err = nvs_set_u8(my_handle, "start", flashConfig.start);
+  err = nvs_set_i8(my_handle, "events", flashConfig.events);
   err = nvs_set_i8(my_handle, "dbgenable", flashConfig.dbg_enable);
   err = nvs_set_i8(my_handle, "loader", flashConfig.loader);
   err = nvs_set_str(my_handle, "modulename", flashConfig.module_name);
   err = nvs_commit(my_handle);
   nvs_close(my_handle);
 
-  ESP_LOGI(TAG, "Configuration Saved");
+  ESP_LOGI(TAG, "Configuration Saved Version: %ld", flashConfig.version);
 
   return err;
 }
 
 esp_err_t configRestore(void)
 {
+  uint32_t ver;
   nvs_handle_t my_handle;
   esp_err_t err;
   size_t sz;
@@ -86,22 +88,31 @@ esp_err_t configRestore(void)
     return err;
   }
 
-  err = nvs_get_u32(my_handle, "version", &flashConfig.version);
+  err = nvs_get_u32(my_handle, "version", &ver);
   if (err != ESP_OK)
   {
-    if (!configRestoreDefaults())
-      return err;
+    configRestoreDefaults();
 
     return ESP_ERR_NOT_FOUND;
   }
 
+  if (ver != flashDefault.version)
+  {
+    ESP_LOGE(TAG, "Config Version Error Version: %ld", ver);
+    configRestoreDefaults();
+
+    return ESP_ERR_INVALID_VERSION;
+  }
+
+  flashConfig.version = ver;
   err = nvs_get_i32(my_handle, "loaderbaudrate", &flashConfig.loader_baud_rate);
   err = nvs_get_i32(my_handle, "baudrate", &flashConfig.baud_rate);
-  err = nvs_get_i32(my_handle, "dbgbaudrate", &flashConfig.baud_rate);
+  err = nvs_get_i32(my_handle, "dbgbaudrate", &flashConfig.dbg_baud_rate);
   err = nvs_get_i8(my_handle, "connledpin", &flashConfig.conn_led_pin);
   err = nvs_get_i8(my_handle, "resetpin", &flashConfig.reset_pin);
   err = nvs_get_i8(my_handle, "enable", &flashConfig.enable);
   err = nvs_get_u8(my_handle, "start", &flashConfig.start);
+  err = nvs_get_i8(my_handle, "events", &flashConfig.events);
   err = nvs_get_i8(my_handle, "dbgenable", &flashConfig.dbg_enable);
   err = nvs_get_i8(my_handle, "loader", &flashConfig.loader);
   err = nvs_get_u32(my_handle, "seq", &flashConfig.seq);

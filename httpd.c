@@ -977,7 +977,7 @@ static esp_err_t ajaxLog(httpd_req_t* req)
     i = strlen(output);
     sprintf(buff, "%d", i);
 
-    ESP_LOGI(TAG, "Outputing Data, %d", i);
+//    ESP_LOGI(TAG, "Outputing Data, %d", i);
 
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_send(req, output, i);
@@ -1019,7 +1019,11 @@ int vlogData(const char* format, va_list valist)
                 skip = 0;
     }
 
-    return vprintf(format, valist);
+#ifdef CONFIG_LOGGING
+    vprintf(format, valist);
+#endif
+
+    return len;
 }
 
 //Setup log file and install log capture
@@ -1402,7 +1406,7 @@ esp_err_t handleReply(int handle, char *code, int tcount, int count)
 
     while (count > t)
     {
-        i = uart_read_bytes(UART_NUM_1, Buffer, count, 500 / portTICK_PERIOD_MS);
+        i = receiveBytes(Buffer, count);
         if (i > 0)
             t = t + i;
     }
