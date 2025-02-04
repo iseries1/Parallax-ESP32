@@ -18,6 +18,8 @@ static void doTerminal()
   int len;
   char rx_buffer[1024];
 
+  len = recv(currentSocket, rx_buffer, sizeof(rx_buffer), 0);
+  
   len = 0;
   do
   {

@@ -67,12 +67,12 @@ void app_main(void)
 
   ESP_LOGI(TAG, "finished configRestore: %d", ret);
 
+  ESP_LOGI(TAG, "Starting");
+
   statusInit();
 
   //Startup WiFi
   startWiFi();
-
-  serbridgeInit(23);
 
   esp_vfs_spiffs_conf_t spiff_conf =
    {
@@ -82,17 +82,11 @@ void app_main(void)
     .format_if_mount_failed = false
    };
 
-  Delay(1000);
-
-  ESP_LOGI(TAG, "Starting");
-
   ret = esp_vfs_spiffs_register(&spiff_conf);
   if (ret != ESP_OK)
     ESP_LOGI(TAG, "Spiffs Failed to Register!");
   else
     ESP_LOGI(TAG, "Spiffs Registered");
-
-  Delay(2000);
 
   size_t total = 0, used = 0;
   ret = esp_spiffs_info(spiff_conf.partition_label, &total, &used);
@@ -102,6 +96,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
 
   initDiscovery();
+
   //cgiPropInit();
   //sscp_init();
 
@@ -109,7 +104,11 @@ void app_main(void)
 
   captdnsInit();
 
+  serbridgeInit(23);
+
   ESP_LOGI(TAG, "Ready");
+
+  Delay(1000);
 
   parserInit();
 

@@ -119,11 +119,15 @@ int getIPAddress(void *data, char *value)
 
     if (interface == 1)
         nf = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+
     if (interface == 2)
         nf = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
 
     if (nf == NULL)
-        return -1;
+    {
+        strcpy(value, "0.0.0.0");
+        return 0;
+    }
 
     if (esp_netif_get_ip_info(nf, &info) != 0)
         return -1;

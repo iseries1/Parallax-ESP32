@@ -50,7 +50,7 @@ esp_err_t config_AP()
   ESP_LOGI(TAG, "Setting WiFi Name: %s", flashConfig.module_name);
 
   config.ap.ssid_len = strlen(flashConfig.module_name);
-  config.ap.authmode = WIFI_AUTH_WPA2_PSK;
+  config.ap.authmode = WIFI_AUTH_OPEN;
   config.ap.channel = 4;
   config.ap.max_connection = 4;
   memset(config.ap.password, 0, sizeof(config.ap.password));
@@ -73,7 +73,7 @@ esp_err_t config_STA()
 
   config_default.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
   config_default.sta.failure_retry_cnt = 3;
-  config_default.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+  config_default.sta.threshold.authmode = WIFI_AUTH_OPEN;
   config_default.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
   config_default.sta.pmf_cfg.capable = true;
   config_default.sta.pmf_cfg.required = false;
@@ -101,22 +101,33 @@ esp_err_t startWiFi()
   if (esp_wifi_get_mode(&mode) != ESP_OK)
   {
     ESP_LOGI(TAG, "Mode Error setting AP");
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     config_AP();
-    ESP_LOGI(TAG, "WiFi Start");
+    config_STA();
+    ESP_LOGI(TAG, "Default WiFi Starting");
     ESP_ERROR_CHECK(esp_wifi_start());
     return ESP_OK;
   }
 
-  ESP_LOGI(TAG, "Setting Access Point Config");
-  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
   config_AP();
-
-  ESP_LOGI(TAG, "Setting Station Config");
-  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
   config_STA();
 
-  ESP_ERROR_CHECK(esp_wifi_set_mode(mode));
+  if (mode == WIFI_MODE_AP)
+  {
+    ESP_LOGI(TAG, "Setting Access Point Config");
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+//    config_AP();
+  }
+
+  if (mode == WIFI_MODE_STA)
+  {
+    ESP_LOGI(TAG, "Setting Station Config");
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+//    config_STA();
+  }
+
+//  ESP_ERROR_CHECK(esp_wifi_set_mode(mode));
 
   ESP_LOGI(TAG, "WiFi Starting");
   ESP_ERROR_CHECK(esp_wifi_start());

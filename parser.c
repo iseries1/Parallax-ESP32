@@ -63,7 +63,8 @@ int receiveBytes(char *buffer, int len)
 {
     int i;
 
-    i = uart_read_bytes(UART_NUM_0, buffer, len, 20 / portTICK_PERIOD_MS);
+    i = uart_read_bytes(UART_NUM_0, buffer, len, 200 / portTICK_PERIOD_MS);
+
     return i;
 }
 
@@ -153,7 +154,7 @@ void parserInit()
         .source_clk = UART_SCLK_APB,
     };
 
-    uart_driver_install(UART_NUM_0, BUFFSIZE * 2, 0, 0, NULL, 0);
+    c = uart_driver_install(UART_NUM_0, BUFFSIZE * 2, 0, 0, NULL, 0);
     uart_param_config(UART_NUM_0, &uart_config);
     uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
@@ -164,6 +165,9 @@ void parserInit()
     Out = 0;
     parse = false;
     c = -1;
+
+    ESP_LOGI(TAG, "Uart Configured");
+    Delay(1000);
 
     while (true)
     {
